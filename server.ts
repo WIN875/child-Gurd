@@ -12,9 +12,9 @@ import dotenv from "dotenv";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load local environment variables (important for OPENROUTER_API_KEY)
-dotenv.config({ path: path.join(__dirname, ".env.local") });
-dotenv.config(); // fallback to .env if .env.local doesn't exist
+// Load environment variables (important for OPENROUTER_API_KEY)
+dotenv.config({ path: path.join(process.cwd(), ".env.local") });
+dotenv.config({ path: path.join(process.cwd(), ".env") });
 
 const DB_PATH = process.env.NODE_ENV === "production"
   ? "/tmp/childguard.db"
@@ -237,13 +237,34 @@ app.get("/api/stats", authenticate, (req, res) => {
 });
 
 // Serve React build in production
-const distPath = path.resolve(__dirname, "../dist");
+const distPath = path.resolve(process.cwd(), "dist");
+const alternateDistPath = path.resolve(__dirname, "../dist");
+
+console.log(`[INFO] Current Working Directory: ${process.cwd()}`);
+console.log(`[INFO] __dirname: ${__dirname}`);
+console.log(`[INFO] Attempting to serve static files from: ${distPath}`);
+
 if (process.env.NODE_ENV === "production") {
-  if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+  const finalDistPath = fs.existsSync(distPath) ? distPath : alternateDistPath;
+  console.log(`[INFO] Final Resolved distPath: ${finalDistPath}`);
+
+  if (fs.existsSync(finalDistPath)) {
+    console.log(`[INFO] Found dist directory. Serving static files.`);
+    app.use(express.static(finalDistPath));
+    app.get("*", (req, res) => {
+      const indexPath = path.join(finalDistPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        console.error(`[ERROR] index.html not found at ${indexPath}`);
+        res.status(404).send("Frontend build not found. Did you run 'npm run build'?");
+      }
+    });
+  } else {
+    console.error(`[ERROR] dist directory NOT found at ${distPath} or ${alternateDistPath}`);
   }
 } else {
+  console.log(`[INFO] Running in development mode with Vite middleware.`);
   const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
   app.use(vite.middlewares);
